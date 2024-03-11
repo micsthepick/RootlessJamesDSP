@@ -35,7 +35,7 @@ class EngineLauncherActivity : BaseActivity() {
             // If projection token available, start immediately
             if(app.mediaProjectionStartIntent != null) {
                 Timber.d("Reusing old projection token to start service")
-                RootlessAudioProcessorService.start(this, app.mediaProjectionStartIntent)
+                RootlessAudioProcessorService.start(this, app.mediaProjectionStartIntent, false)
                 finish()
                 return
             }

@@ -251,6 +251,50 @@ class MainActivity : BaseActivity() {
         registerLocalReceiver(processorMessageReceiver, IntentFilter(Constants.ACTION_PROCESSOR_MESSAGE))
 
         // Rootless: don't toggle on click, we handle that in the onClickListener
+        binding.micToggle.toggleOnClick = false
+        binding.micToggle.setOnToggleClickListener(object : FloatingToggleButton.OnToggleClickListener{
+            override fun onClick() {
+                sdkAbove(Build.VERSION_CODES.R) {
+                    binding.micToggle.performHapticFeedback(
+                        if(binding.micToggle.isToggled)
+                            HapticFeedbackConstants.CONFIRM
+                        else
+                            HapticFeedbackConstants.REJECT
+                    )
+                }
+                if (SdkCheck.isQ && isRootless()) {
+                    if(binding.micToggle.isToggled) {
+                        // Currently on, let's turn it off
+                        if (binding.powerToggle.isToggled) {
+                            requestCapturePermission(false)
+                        }
+                        binding.micToggle.isToggled = false
+                    } else {
+                        requestMicCapturePermission()
+                    }
+                }
+                else if (isRoot()) {
+                    when(JamesDspRemoteEngine.isPluginInstalled()) {
+                        JamesDspRemoteEngine.PluginState.Available -> {
+                            binding.micToggle.isToggled = !binding.micToggle.isToggled
+                            prefsApp.set(R.string.key_microphone_on, binding.micToggle.isToggled)
+                        }
+                        JamesDspRemoteEngine.PluginState.Unsupported -> {
+                            toast(getString(R.string.version_mismatch_root_toast))
+                        }
+                        JamesDspRemoteEngine.PluginState.Unavailable -> {
+                            toast(getString(R.string.load_fail_header))
+                        }
+                    }
+                }
+                else if(isPlugin()) {
+                    binding.micToggle.isToggled = !binding.micToggle.isToggled
+                    if (binding.micToggle.isToggled) binding.powerToggle.isToggled = true
+                    prefsApp.set(R.string.key_microphone_on, binding.micToggle.isToggled)
+                    prefsApp.set(R.string.key_powered_on, binding.powerToggle.isToggled)
+                }
+            }
+        })
         binding.powerToggle.toggleOnClick = false
         binding.powerToggle.setOnToggleClickListener(object : FloatingToggleButton.OnToggleClickListener{
             override fun onClick() {
@@ -262,15 +306,15 @@ class MainActivity : BaseActivity() {
                             HapticFeedbackConstants.REJECT
                     )
                 }
-
                 if(SdkCheck.isQ && isRootless()) {
                     if (binding.powerToggle.isToggled) {
                         // Currently on, let's turn it off
                         RootlessAudioProcessorService.stop(this@MainActivity)
                         binding.powerToggle.isToggled = false
+                        binding.micToggle.isToggled = false
                     } else {
                         // Currently off, let's turn it on
-                        requestCapturePermission()
+                        requestCapturePermission(false)
                     }
                 }
                 else if (isRoot()) {
@@ -289,6 +333,8 @@ class MainActivity : BaseActivity() {
                 }
                 else if(isPlugin()) {
                     binding.powerToggle.isToggled = !binding.powerToggle.isToggled
+                    if (!binding.powerToggle.isToggled) binding.micToggle.isToggled = false
+                    prefsApp.set(R.string.key_microphone_on, binding.micToggle.isToggled)
                     prefsApp.set(R.string.key_powered_on, binding.powerToggle.isToggled)
                 }
             }
@@ -520,6 +566,7 @@ class MainActivity : BaseActivity() {
             .commit()
 
         binding.powerToggle.isToggled = false
+        binding.micToggle.isToggled = false
         binding.toolbar.isVisible = false
     }
 
@@ -552,10 +599,16 @@ class MainActivity : BaseActivity() {
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    fun requestCapturePermission() {
+    fun requestMicCapturePermission() {
+        requestCapturePermission(true)
+        binding.micToggle.isToggled = true;
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    fun requestCapturePermission(isMicRecord: Boolean = false) {
         if(app.mediaProjectionStartIntent != null && isRootless()) {
             binding.powerToggle.isToggled = true
-            RootlessAudioProcessorService.start(this, app.mediaProjectionStartIntent)
+            RootlessAudioProcessorService.start(this, app.mediaProjectionStartIntent, isMicRecord)
             return
         }
         try {

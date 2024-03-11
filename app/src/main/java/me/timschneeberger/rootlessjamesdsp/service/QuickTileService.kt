@@ -81,7 +81,7 @@ class QuickTileService : TileService(),
         val toggled = qsTile?.let { it.state != Tile.STATE_ACTIVE } ?: return
         toggleEnginePower(toggled) { intent ->
             // If projection permission request needs to be shown, collapse status bar
-            if (isRootless() && app.mediaProjectionStartIntent == null && !hasProjectMediaAppOp())
+            if (isRootless() && (app.mediaProjectionStartIntent == null || app.mediaProjectionStartIntent == null) && !hasProjectMediaAppOp())
                 startActivityAndCollapse(intent)
             else
                 startActivity(intent)

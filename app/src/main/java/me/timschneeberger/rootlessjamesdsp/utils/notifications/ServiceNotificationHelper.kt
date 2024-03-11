@@ -265,11 +265,14 @@ object ServiceNotificationHelper: KoinComponent {
         }
         else throw IllegalStateException()
 
-    fun createStartIntent(ctx: Context, mediaProjectionData: Intent? = null) =
+    fun createStartIntent(ctx: Context, mediaProjectionData: Intent? = null, isMicRecord: Boolean = false) =
         if (SdkCheck.isQ && isRootless()) {
+
             with(Intent(ctx, RootlessAudioProcessorService::class.java)) {
-                action = RootlessAudioProcessorService.ACTION_START
+                action = if (isMicRecord) RootlessAudioProcessorService.ACTION_START_MIC
+                else RootlessAudioProcessorService.ACTION_START
                 putExtra(RootlessAudioProcessorService.EXTRA_MEDIA_PROJECTION_DATA, mediaProjectionData)
+//                else putExtra(RootlessAudioProcessorService.EXTRA_MIC_PROJECTION_DATA, micRecordData)
                 this
             }
         }

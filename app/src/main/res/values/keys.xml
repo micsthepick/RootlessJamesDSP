@@ -10,6 +10,7 @@
     <string name="key_is_app_compat_activity_active" translatable="false">is_app_compat_activity_active</string>
 
     <!-- Internal DSP -->
+    <string name="key_microphone_on" translatable="false">mic_on</string>
     <string name="key_powered_on" translatable="false">powered_on</string>
     <string name="key_benchmark_c0" translatable="false">benchmark_c0</string>
     <string name="key_benchmark_c1" translatable="false">benchmark_c1</string>

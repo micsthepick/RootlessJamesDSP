@@ -15,6 +15,8 @@ import android.media.AudioManager
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
 import android.media.AudioTrack
+import android.media.MediaRecorder
+import android.media.MediaRecorder.*
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -55,6 +57,7 @@ import me.timschneeberger.rootlessjamesdsp.utils.extensions.ContextExtensions.se
 import me.timschneeberger.rootlessjamesdsp.utils.extensions.ContextExtensions.toast
 import me.timschneeberger.rootlessjamesdsp.utils.extensions.ContextExtensions.unregisterLocalReceiver
 import me.timschneeberger.rootlessjamesdsp.utils.extensions.PermissionExtensions.hasRecordPermission
+
 import me.timschneeberger.rootlessjamesdsp.utils.notifications.Notifications
 import me.timschneeberger.rootlessjamesdsp.utils.notifications.ServiceNotificationHelper
 import me.timschneeberger.rootlessjamesdsp.utils.preferences.Preferences
@@ -66,6 +69,8 @@ import java.io.IOException
 
 @RequiresApi(Build.VERSION_CODES.Q)
 class RootlessAudioProcessorService : BaseAudioProcessorService() {
+    private var micIsRecording: Boolean = false
+
     // System services
     private lateinit var mediaProjectionManager: MediaProjectionManager
     private lateinit var notificationManager: NotificationManager
@@ -74,6 +79,8 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
     // Media projection token
     private var mediaProjection: MediaProjection? = null
     private var mediaProjectionStartIntent: Intent? = null
+
+    private var micRecord: AudioRecord? = null
 
     // Processing
     private var recreateRecorderRequested = false
@@ -173,6 +180,15 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
             ACTION_START -> {
                 Timber.d("Starting service")
             }
+            ACTION_START_MIC -> {
+                Timber.d("enabling mic")
+                startMic()
+            }
+            ACTION_STOP_MIC -> {
+                Timber.d("Stopping mic")
+                stopMic()
+                return START_NOT_STICKY
+            }
             ACTION_STOP -> {
                 Timber.d("Stopping service")
                 stopSelf()
@@ -217,6 +233,14 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
         return START_REDELIVER_INTENT
     }
 
+    private fun startMic() {
+        micIsRecording = true
+    }
+
+    private fun stopMic() {
+        micIsRecording = false
+    }
+
     override fun onDestroy() {
         isServiceDisposing = true
 
@@ -237,6 +261,7 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
         unregisterLocalReceiver(broadcastReceiver)
         mediaProjection?.unregisterCallback(projectionCallback)
         mediaProjection = null
+        micRecord = null
 
         sessionManager.sessionPolicyDatabase.unregisterOnRestrictedSessionChangeListener(onSessionPolicyChangeListener)
         sessionManager.sessionDatabase.unregisterOnSessionChangeListener(onSessionChangeListener)
@@ -254,6 +279,10 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
             _, key ->
         loadFromPreferences(key)
     }
+
+//    private val micCallback = object: AudioManager.AudioRecordingCallback() {
+//
+//    }
 
     // Projection termination callback
     private val projectionCallback = object: MediaProjection.Callback() {
@@ -439,9 +468,11 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
 
         // Create recorder and track
         var recorder: AudioRecord
+        var micRecorder: AudioRecord
         val track: AudioTrack
         try {
             recorder = buildAudioRecord(encodingFormat, sampleRate, bufferSizeBytes)
+            micRecorder = buildMicRecord(encodingFormat, sampleRate, bufferSizeBytes)
             track = buildAudioTrack(encodingFormat, sampleRate, bufferSizeBytes)
         }
         catch(ex: Exception) {
@@ -463,12 +494,18 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
 
                 val floatBuffer = FloatArray(bufferSize)
                 val floatOutBuffer = FloatArray(bufferSize)
+                val floatMicBuffer = FloatArray(bufferSize)
                 val shortBuffer = ShortArray(bufferSize)
                 val shortOutBuffer = ShortArray(bufferSize)
+                val shortMicBuffer = ShortArray(bufferSize)
                 while (!isProcessorDisposing) {
                     if(recreateRecorderRequested) {
                         recreateRecorderRequested = false
                         Timber.d("Recreating recorder without stopping thread...")
+
+                        // stop micrecord
+                        micRecorder.stop()
+                        micRecorder.release()
 
                         // Suspend track, release recorder
                         recorder.stop()
@@ -485,6 +522,7 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
                         // Recreate recorder with new AudioPlaybackRecordingConfiguration
                         recorder = buildAudioRecord(encodingFormat, sampleRate, bufferSizeBytes)
                         Timber.d("Recorder recreated")
+                        micRecorder = buildMicRecord(encodingFormat, sampleRate, bufferSizeBytes)
                     }
 
                     // Suspend core while idle
@@ -506,6 +544,18 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
                         continue
                     }
 
+                    // keep micRecorder in correct state
+                    if (micIsRecording) {
+                        if (micRecorder.recordingState == AudioRecord.RECORDSTATE_STOPPED) {
+                            micRecorder.startRecording()
+                        }
+                    }
+                    else {
+                        if (micRecorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                            micRecorder.stop()
+                        }
+                    }
+
                     // Resume recorder if suspended
                     if(recorder.recordingState == AudioRecord.RECORDSTATE_STOPPED) {
                         recorder.startRecording()
@@ -518,14 +568,27 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
                     // Choose encoding and process data
                     if(encoding == AudioEncoding.PcmShort) {
                         recorder.read(shortBuffer, 0, shortBuffer.size, AudioRecord.READ_BLOCKING)
+                        if (micIsRecording) {
+                            micRecorder.read(shortMicBuffer, 0, shortMicBuffer.size, AudioRecord.READ_BLOCKING)
+                            for (i in shortBuffer.indices) {
+                                shortBuffer[i] = (shortBuffer[i] + shortMicBuffer[i]).toShort()
+                            }
+                        }
                         engine.processInt16(shortBuffer, shortOutBuffer)
                         track.write(shortOutBuffer, 0, shortOutBuffer.size, AudioTrack.WRITE_BLOCKING)
                     }
                     else {
                         recorder.read(floatBuffer, 0, floatBuffer.size, AudioRecord.READ_BLOCKING)
+                        if (micIsRecording) {
+                            micRecorder.read(floatMicBuffer, 0, floatMicBuffer.size, AudioRecord.READ_BLOCKING)
+                            for (i in floatBuffer.indices) {
+                                floatBuffer[i] = floatBuffer[i] + floatMicBuffer[i]
+                            }
+                        }
                         engine.processFloat(floatBuffer, floatOutBuffer)
                         track.write(floatOutBuffer, 0, floatOutBuffer.size, AudioTrack.WRITE_BLOCKING)
                     }
+
                 }
             } catch (e: IOException) {
                 Timber.w(e)
@@ -535,6 +598,9 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
                 Timber.e(e)
                 stopSelf()
             } finally {
+                if(micRecorder.state != AudioRecord.STATE_UNINITIALIZED) {
+                    micRecorder.stop()
+                }
                 // Clean up recorder and track
                 if(recorder.state != AudioRecord.STATE_UNINITIALIZED) {
                     recorder.stop()
@@ -543,6 +609,7 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
                     track.stop()
                 }
 
+                micRecorder.release()
                 recorder.release()
                 track.release()
             }
@@ -612,6 +679,25 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
     }
 
     @SuppressLint("MissingPermission")
+    fun buildMicRecord(encoding: Int, sampleRate: Int, bufferSizeBytes: Int): AudioRecord {
+        if (!hasRecordPermission()) {
+            Timber.e("buildAudioRecord: RECORD_AUDIO not granted")
+            throw RuntimeException("RECORD_AUDIO not granted")
+        }
+        val format = AudioFormat.Builder()
+            .setEncoding(encoding)
+            .setSampleRate(sampleRate)
+            .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
+            .build()
+
+        return AudioRecord.Builder()
+            .setAudioFormat(format)
+            .setBufferSizeInBytes(bufferSizeBytes)
+            .setAudioSource(AudioSource.MIC)
+            .build()
+    }
+
+    @SuppressLint("MissingPermission")
     private fun buildAudioRecord(encoding: Int, sampleRate: Int, bufferSizeBytes: Int): AudioRecord {
         if (!hasRecordPermission()) {
             Timber.e("buildAudioRecord: RECORD_AUDIO not granted")
@@ -671,15 +757,18 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
     companion object {
         const val SESSION_LOSS_MAX_RETRIES = 1
 
+        const val ACTION_START_MIC = BuildConfig.APPLICATION_ID + ".rootless.service.START_MIC"
+        const val ACTION_STOP_MIC = BuildConfig.APPLICATION_ID + ".rootless.service.STOP_MIC"
         const val ACTION_START = BuildConfig.APPLICATION_ID + ".rootless.service.START"
         const val ACTION_STOP = BuildConfig.APPLICATION_ID + ".rootless.service.STOP"
         const val EXTRA_MEDIA_PROJECTION_DATA = "mediaProjectionData"
+//        const val EXTRA_MIC_PROJECTION_DATA = "micProjectionData"
         const val EXTRA_APP_UID = "uid"
         const val EXTRA_APP_COMPAT_INTERNAL_CALL = "appCompatInternalCall"
 
-        fun start(context: Context, data: Intent?) {
+        fun start(context: Context, data: Intent?, isMicRecord: Boolean = false) {
             try {
-                context.startForegroundService(ServiceNotificationHelper.createStartIntent(context, data))
+                context.startForegroundService(ServiceNotificationHelper.createStartIntent(context, data, isMicRecord))
             }
             catch(ex: Exception) {
                 CrashlyticsImpl.recordException(ex)
