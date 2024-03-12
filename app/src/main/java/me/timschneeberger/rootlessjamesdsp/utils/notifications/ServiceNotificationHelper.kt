@@ -272,7 +272,6 @@ object ServiceNotificationHelper: KoinComponent {
                 action = if (isMicRecord) RootlessAudioProcessorService.ACTION_START_MIC
                 else RootlessAudioProcessorService.ACTION_START
                 putExtra(RootlessAudioProcessorService.EXTRA_MEDIA_PROJECTION_DATA, mediaProjectionData)
-//                else putExtra(RootlessAudioProcessorService.EXTRA_MIC_PROJECTION_DATA, micRecordData)
                 this
             }
         }

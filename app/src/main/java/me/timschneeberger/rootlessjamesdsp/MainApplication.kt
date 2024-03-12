@@ -77,7 +77,6 @@ open class MainApplication : Application(), SharedPreferences.OnSharedPreference
 
     /* Rootless: Media projection auth token */
     var mediaProjectionStartIntent: Intent? = null
-    var micProjectionStartIntent: Intent? = null
 
     var engineSampleRate = 0f
         private set
@@ -93,7 +92,6 @@ open class MainApplication : Application(), SharedPreferences.OnSharedPreference
                         if(isRootless()) {
                             Timber.i("mediaProjectionStartIntent discarded")
                             mediaProjectionStartIntent = null
-                            micProjectionStartIntent = null
                         }
                     }
                 }
