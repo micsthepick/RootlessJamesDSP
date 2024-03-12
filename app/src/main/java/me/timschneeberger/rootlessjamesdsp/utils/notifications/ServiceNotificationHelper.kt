@@ -92,6 +92,7 @@ object ServiceNotificationHelper: KoinComponent {
 
         // Rootless: if service active it is always processing audio
         val enabled = isRootless() || preferences.get<Boolean>(R.string.key_powered_on)
+        val micEnabled = preferences.get<Boolean>(R.string.key_microphone_on)
 
         return createServiceNotification(context,
             context.getString(
@@ -99,7 +100,7 @@ object ServiceNotificationHelper: KoinComponent {
                 else R.string.notification_processing_disabled_title
             ), when {
                 sessions.isNotEmpty() -> context.getString(R.string.notification_processing, apps)
-                else -> context.getString(R.string.notification_idle)
+                else -> if (micEnabled) "🎤" else context.getString(R.string.notification_idle)
             })
     }
 

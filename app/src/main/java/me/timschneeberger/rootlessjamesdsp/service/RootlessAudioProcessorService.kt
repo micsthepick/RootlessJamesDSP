@@ -69,7 +69,7 @@ import java.io.IOException
 @RequiresApi(Build.VERSION_CODES.Q)
 class RootlessAudioProcessorService : BaseAudioProcessorService() {
     private var isRecording: Boolean = false
-    private var micIsRecording: Boolean = false
+    var micIsRecording: Boolean = false
 
     // System services
     private lateinit var mediaProjectionManager: MediaProjectionManager
@@ -190,6 +190,7 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
                 Timber.d("enabling mic")
                 micIsRecording = true
                 recreateMicRecorderRequested = true
+                isProcessorIdle = false
             }
 
             ACTION_STOP -> {

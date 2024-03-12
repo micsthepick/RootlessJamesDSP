@@ -73,6 +73,8 @@ import kotlin.concurrent.schedule
 
 
 class MainActivity : BaseActivity() {
+    private var hasRequestedMicCapture: Boolean = false
+
     /* UI bindings */
     lateinit var binding: ActivityDspMainBinding
     private lateinit var bindingContent: ContentMainBinding
@@ -98,8 +100,10 @@ class MainActivity : BaseActivity() {
                 processorService = (service as BaseAudioProcessorService.LocalBinder).service
                 processorServiceBound = true
 
-                if (isRootless())
+                if (isRootless()) {
                     binding.powerToggle.isToggled = true
+                }
+
             }
 
             override fun onServiceDisconnected(arg0: ComponentName) {
@@ -115,12 +119,17 @@ class MainActivity : BaseActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Constants.ACTION_SERVICE_STOPPED -> {
-                    if(isRootless())
+                    if(isRootless()) {
                         binding.powerToggle.isToggled = false
+                        binding.micToggle.isToggled = false
+                    }
                 }
                 Constants.ACTION_SERVICE_STARTED -> {
-                    if(isRootless())
+                    if(isRootless()) {
                         binding.powerToggle.isToggled = true
+                        if(hasRequestedMicCapture)
+                            binding.micToggle.isToggled = true
+                    }
                 }
             }
         }
@@ -262,6 +271,7 @@ class MainActivity : BaseActivity() {
                             HapticFeedbackConstants.REJECT
                     )
                 }
+                prefsApp.set(R.string.key_microphone_on, !binding.micToggle.isToggled)
                 if (SdkCheck.isQ && isRootless()) {
                     if(binding.micToggle.isToggled) {
                         // Currently on, let's turn it off
@@ -277,7 +287,6 @@ class MainActivity : BaseActivity() {
                     when(JamesDspRemoteEngine.isPluginInstalled()) {
                         JamesDspRemoteEngine.PluginState.Available -> {
                             binding.micToggle.isToggled = !binding.micToggle.isToggled
-                            prefsApp.set(R.string.key_microphone_on, binding.micToggle.isToggled)
                         }
                         JamesDspRemoteEngine.PluginState.Unsupported -> {
                             toast(getString(R.string.version_mismatch_root_toast))
@@ -290,9 +299,8 @@ class MainActivity : BaseActivity() {
                 else if(isPlugin()) {
                     binding.micToggle.isToggled = !binding.micToggle.isToggled
                     if (binding.micToggle.isToggled) binding.powerToggle.isToggled = true
-                    prefsApp.set(R.string.key_microphone_on, binding.micToggle.isToggled)
-                    prefsApp.set(R.string.key_powered_on, binding.powerToggle.isToggled)
                 }
+                prefsApp.set(R.string.key_powered_on, binding.powerToggle.isToggled)
             }
         })
         binding.powerToggle.toggleOnClick = false
@@ -308,6 +316,7 @@ class MainActivity : BaseActivity() {
                 }
                 if(SdkCheck.isQ && isRootless()) {
                     if (binding.powerToggle.isToggled) {
+                        prefsApp.set(R.string.key_microphone_on, false)
                         // Currently on, let's turn it off
                         RootlessAudioProcessorService.stop(this@MainActivity)
                         binding.powerToggle.isToggled = false
@@ -321,7 +330,6 @@ class MainActivity : BaseActivity() {
                     when(JamesDspRemoteEngine.isPluginInstalled()) {
                         JamesDspRemoteEngine.PluginState.Available -> {
                             binding.powerToggle.isToggled = !binding.powerToggle.isToggled
-                            prefsApp.set(R.string.key_powered_on, binding.powerToggle.isToggled)
                         }
                         JamesDspRemoteEngine.PluginState.Unsupported -> {
                             toast(getString(R.string.version_mismatch_root_toast))
@@ -334,9 +342,8 @@ class MainActivity : BaseActivity() {
                 else if(isPlugin()) {
                     binding.powerToggle.isToggled = !binding.powerToggle.isToggled
                     if (!binding.powerToggle.isToggled) binding.micToggle.isToggled = false
-                    prefsApp.set(R.string.key_microphone_on, binding.micToggle.isToggled)
-                    prefsApp.set(R.string.key_powered_on, binding.powerToggle.isToggled)
                 }
+                prefsApp.set(R.string.key_powered_on, binding.powerToggle.isToggled)
             }
         })
 
@@ -351,13 +358,16 @@ class MainActivity : BaseActivity() {
                 } else {
                     binding.powerToggle.isToggled = false
                 }
+
+                prefsApp.set(R.string.key_microphone_on, binding.micToggle.isToggled)
+                prefsApp.set(R.string.key_powered_on, binding.powerToggle.isToggled)
             }
         }
 
         // Rootless: request capture permission instantly, if redirected from onboarding
         if (SdkCheck.isQ && isRootless()) {
             if (intent.getBooleanExtra(EXTRA_FORCE_SHOW_CAPTURE_PROMPT, false)) {
-                requestCapturePermission()
+                requestCapturePermission(false)
             }
         }
 
@@ -433,6 +443,9 @@ class MainActivity : BaseActivity() {
         else if(key == getString(R.string.key_powered_on) && !hasLoadFailed && !isRootless()) {
             binding.powerToggle.isToggled = prefsApp.get(R.string.key_powered_on)
         }
+        else if(key == getString(R.string.key_microphone_on) && !hasLoadFailed && !isRootless()) {
+            binding.micToggle.isToggled = prefsApp.get(R.string.key_microphone_on)
+        }
 
         super.onSharedPreferenceChanged(sharedPreferences, key)
     }
@@ -479,8 +492,15 @@ class MainActivity : BaseActivity() {
         super.onResume()
         prefsVar.set(R.string.key_is_activity_active, true)
 
-        if(isRootless())
+        if(isRootless()) {
             binding.powerToggle.isToggled = processorService != null
+            if (processorService != null) {
+                val micRecording = (processorService as RootlessAudioProcessorService).micIsRecording
+                Timber.d("onResume: micRecording=$micRecording")
+                binding.micToggle.isToggled = micRecording
+            }
+        }
+
     }
 
     private fun checkForUpdates() {
@@ -600,14 +620,18 @@ class MainActivity : BaseActivity() {
 
     @RequiresApi(Build.VERSION_CODES.Q)
     fun requestMicCapturePermission() {
+        hasRequestedMicCapture = true
         requestCapturePermission(true)
-        binding.micToggle.isToggled = true;
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
     fun requestCapturePermission(isMicRecord: Boolean = false) {
         if(app.mediaProjectionStartIntent != null && isRootless()) {
             binding.powerToggle.isToggled = true
+            if (isMicRecord) {
+                binding.micToggle.isToggled = true;
+            }
+            Timber.d("requestCapturePermission isMicRecord=$isMicRecord, powerToggle=${binding.powerToggle.isToggled} micToggle=${binding.micToggle.isToggled}")
             RootlessAudioProcessorService.start(this, app.mediaProjectionStartIntent, isMicRecord)
             return
         }

@@ -39,6 +39,7 @@ class QuickTileService : TileService(),
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         when (key) {
             getString(R.string.key_powered_on) -> updateState()
+            getString(R.string.key_microphone_on) -> updateState()
         }
     }
 
