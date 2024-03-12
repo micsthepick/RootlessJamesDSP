@@ -15,7 +15,6 @@ import android.media.AudioManager
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
 import android.media.AudioTrack
-import android.media.MediaRecorder
 import android.media.MediaRecorder.*
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
@@ -180,31 +179,28 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
         when (intent.action) {
             null -> {
                 Timber.wtf("onStartCommand: intent.action is null")
-
-                if (isRunning) {
-                    return START_NOT_STICKY
-                }
             }
+
             ACTION_START -> {
                 Timber.d("Starting service")
-                if (isRunning) {
-                    return START_NOT_STICKY
-                }
+                micIsRecording = false
             }
+
             ACTION_START_MIC -> {
                 Timber.d("enabling mic")
-                startMic()
+                micIsRecording = true
+                recreateMicRecorderRequested = true
             }
-            ACTION_STOP_MIC -> {
-                Timber.d("Stopping mic")
-                stopMic()
-                return START_NOT_STICKY
-            }
+
             ACTION_STOP -> {
                 Timber.d("Stopping service")
                 stopSelf()
                 return START_NOT_STICKY
             }
+        }
+
+        if (isRunning) {
+            return START_NOT_STICKY
         }
 
         Timber.d("starting Service actually")
@@ -241,15 +237,6 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
         }
 
         return START_REDELIVER_INTENT
-    }
-
-    private fun startMic() {
-        micIsRecording = true
-        recreateMicRecorderRequested = true
-    }
-
-    private fun stopMic() {
-        micIsRecording = false
     }
 
     override fun onDestroy() {
@@ -532,7 +519,7 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
                     }
                     if (recreateMicRecorderRequested) {
                         recreateMicRecorderRequested = false
-                        // stop micrecord
+                        // stop micRecorder
                         micRecorder.stop()
                         micRecorder.release()
 
@@ -582,16 +569,9 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
 
                     // Choose encoding and process data
                     if(encoding == AudioEncoding.PcmShort) {
-                        if (isRecording) {
-                            recorder.read(shortBuffer, 0, shortBuffer.size, AudioRecord.READ_BLOCKING)
-                        }
-                        else {
-                            for (i in shortBuffer.indices) {
-                                shortBuffer[i] = 0
-                            }
-                        }
+                        recorder.read(shortBuffer, 0, shortBuffer.size, AudioRecord.READ_BLOCKING)
                         if (micIsRecording) {
-                            micRecorder.read(shortMicBuffer, 0, shortMicBuffer.size, AudioRecord.READ_BLOCKING)
+                            micRecorder.read(shortMicBuffer, 0, shortMicBuffer.size, AudioRecord.READ_NON_BLOCKING)
                             for (i in shortBuffer.indices) {
                                 shortBuffer[i] = (shortBuffer[i] + shortMicBuffer[i]).toShort()
                             }
@@ -600,16 +580,9 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
                         track.write(shortOutBuffer, 0, shortOutBuffer.size, AudioTrack.WRITE_BLOCKING)
                     }
                     else {
-                        if (isRecording) {
-                            recorder.read(floatBuffer, 0, floatBuffer.size, AudioRecord.READ_BLOCKING)
-                        }
-                        else {
-                            for (i in floatBuffer.indices) {
-                                floatBuffer[i] = 0.0f
-                            }
-                        }
+                        recorder.read(floatBuffer, 0, floatBuffer.size, AudioRecord.READ_BLOCKING)
                         if (micIsRecording) {
-                            micRecorder.read(floatMicBuffer, 0, floatMicBuffer.size, AudioRecord.READ_BLOCKING)
+                            micRecorder.read(floatMicBuffer, 0, floatMicBuffer.size, AudioRecord.READ_NON_BLOCKING)
                             for (i in floatBuffer.indices) {
                                 floatBuffer[i] = floatBuffer[i] + floatMicBuffer[i]
                             }
@@ -787,7 +760,6 @@ class RootlessAudioProcessorService : BaseAudioProcessorService() {
         const val SESSION_LOSS_MAX_RETRIES = 1
 
         const val ACTION_START_MIC = BuildConfig.APPLICATION_ID + ".rootless.service.START_MIC"
-        const val ACTION_STOP_MIC = BuildConfig.APPLICATION_ID + ".rootless.service.STOP_MIC"
         const val ACTION_START = BuildConfig.APPLICATION_ID + ".rootless.service.START"
         const val ACTION_STOP = BuildConfig.APPLICATION_ID + ".rootless.service.STOP"
         const val EXTRA_MEDIA_PROJECTION_DATA = "mediaProjectionData"
